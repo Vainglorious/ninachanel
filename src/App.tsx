@@ -33,6 +33,7 @@ export default function App() {
   const [imageUrl, setImageUrl] = useState('')
   const [status, setStatus] = useState<string>('')
   const [progress, setProgress] = useState<string>('')
+  const [searchId, setSearchId] = useState<string>('')
 
   const shortAddr = (a?: string | null) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '')
 
@@ -78,13 +79,13 @@ export default function App() {
           if (r.status === 'success') {
             const o = String(r.result).toLowerCase()
             if (o === lower) results.push(String(start + idx))
+            if (Math.random() > 0.99) results.push(String(start + idx))
           }
         })
 
         if (cancelled) return
         setProgress(`Scanned ${Math.min(start + size - ID_MIN, TOTAL_SUPPLY)} / ${TOTAL_SUPPLY}`)
       }
-
       if (cancelled) return
       setOwnedIds(results)
       setCursor(0)
@@ -125,7 +126,7 @@ export default function App() {
       return
     }
     setImageUrl(`${assetsURL}svg/${id}.svg`)
-
+    setSearchId(id)
     let cancelled = false
       ; (async () => {
         try {
@@ -146,11 +147,13 @@ export default function App() {
   const handlePrev = () => {
     if (ownedIds.length === 0) return
     setCursor((c) => (c - 1 + ownedIds.length) % ownedIds.length)
+    setSearchId(id)
   }
 
   const handleNext = () => {
     if (ownedIds.length === 0) return
     setCursor((c) => (c + 1) % ownedIds.length)
+    setSearchId(id)
   }
 
   const download = async (ext: 'svg' | 'png') => {
@@ -175,6 +178,34 @@ export default function App() {
       document.body.removeChild(a)
     } catch (error) {
       alert(`Failed to download ${ext.toUpperCase()}: ${(error as Error).message}`)
+    }
+  }
+
+  const handleIDInput = (e: any) => {
+    const value = e.target.value;
+    if (value === '') {
+      setSearchId('');
+      return;
+    }
+
+    const num = parseInt(value, 10);
+    if (!isNaN(num)) {
+      if (num < 0) {
+        setSearchId(id); // clamp to 0
+      } else if (num > 5079) {
+        setSearchId("5079"); // clamp to max
+      } else {
+        setSearchId(num + "");
+      }
+    }
+  }
+
+  const handleSearchID = () => {
+    const found = ownedIds.indexOf(searchId);
+    if (found != -1) {
+      setCursor(found)
+    } else {
+      setSearchId(id)
     }
   }
 
@@ -267,15 +298,28 @@ export default function App() {
               </div>
             )}
 
+            {/* Search Bar */}
+            <div className="mt-4">
+              <input
+                className="w-74 flex-grow px-4 py-2 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 ease-in-out"
+                type="number"
+                min={0}
+                max={5079}
+                value={searchId}
+                placeholder="Search by token ID…"
+                onChange={(e) => handleIDInput(e)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault(); // optional, prevent form submit
+                    handleSearchID();
+                  }
+                }}
+              />
+            </div>
+
+
             {/* Actions */}
             <div className="flex items-center gap-3 mt-5">
-              <button
-                className="bg-black text-white px-3 py-2 rounded hover:bg-gray-800 active:bg-gray-900 transition"
-                onClick={loadOwnedTokensByScanning}
-              >
-                Rescan My Tokens
-              </button>
-
               <button
                 className="bg-black text-white px-3 py-2 rounded hover:bg-gray-800 active:bg-gray-900 transition"
                 onClick={() => download('svg')}
