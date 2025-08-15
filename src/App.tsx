@@ -79,7 +79,7 @@ export default function App() {
           if (r.status === 'success') {
             const o = String(r.result).toLowerCase()
             if (o === lower) results.push(String(start + idx))
-            if (Math.random() > 0.99) results.push(String(start + idx))
+            // if (Math.random() > 0.99) results.push(String(start + idx))
           }
         })
 
