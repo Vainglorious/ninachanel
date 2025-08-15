@@ -1,247 +1,312 @@
-import { useEffect, useState } from 'react'
-import viteLogo from '/vite.svg'
+import { useEffect, useMemo, useState } from 'react'
+import viteLogo from '/logo.png'
 import './App.css'
-import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { FaInstagram, FaXTwitter } from "react-icons/fa6";
-import { SiOpensea } from "react-icons/si";
-import { ethers } from 'ethers';
-import { useAccount, usePublicClient } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { FaInstagram, FaXTwitter, FaArrowLeft, FaArrowRight } from 'react-icons/fa6'
+import { SiOpensea } from 'react-icons/si'
+import { ethers } from 'ethers'
+import { useAccount, useDisconnect, usePublicClient } from 'wagmi'
 
-import contractAbi from './contract.json';
-const contractAddress = '0x670d4dd2e6badfbbd372d0d37e06cd2852754a04';
-const assetsURL = 'https://ninachanel-bucket.s3.us-east-1.amazonaws.com/';
+import contractAbi from './contract.json'
 
-function App() {
-  const publicClient: any = usePublicClient();
-  const provider = new ethers.BrowserProvider(publicClient.transport);
-  const contract = new ethers.Contract(contractAddress, contractAbi, provider);
+const contractAddress = '0x670d4dd2e6badfbbd372d0d37e06cd2852754a04'
+const assetsURL = 'https://ninachanel-bucket.s3.us-east-1.amazonaws.com/'
+const ID_MIN = 0
+const ID_MAX = 5079
+const TOTAL_SUPPLY = ID_MAX - ID_MIN + 1
 
-  const { isConnected, address } = useAccount();
+export default function App() {
+  const publicClient: any = usePublicClient()
+  const provider = useMemo(() => new ethers.BrowserProvider(publicClient.transport), [publicClient])
+  const contract = useMemo(() => new ethers.Contract(contractAddress, contractAbi, provider), [provider])
 
-  const [output, setOutput] = useState("");
+  const { isConnected, address } = useAccount()
+  const { disconnect } = useDisconnect();
 
-  const [id, setId] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
+  // Only show tokens the user owns
+  const [ownedIds, setOwnedIds] = useState<string[]>([])
+  const [cursor, setCursor] = useState(0) // index within ownedIds
 
-  const handleContract = async () => {
-    const res = await contract.ownerOf(id);
-    setOutput(res)
-  }
+  // Derived state
+  const id = ownedIds.length > 0 ? ownedIds[cursor] : ''
+  const [owner, setOwner] = useState<string | null>(null)
+  const [imageUrl, setImageUrl] = useState('')
+  const [status, setStatus] = useState<string>('')
+  const [progress, setProgress] = useState<string>('')
 
-  const handleDownloadSvg = async () => {
-    if (id == "")
-      return;
+  const shortAddr = (a?: string | null) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '')
+
+  // ===== Scan ownerOf for the whole collection (0..5079) in chunks =====
+  async function loadOwnedTokensByScanning() {
+    setStatus('Scanning collection…')
+    setProgress('')
+    setOwnedIds([])
+    setCursor(0)
+    setOwner(null)
+
+    if (!isConnected || !address) {
+      setStatus('Connect a wallet to load your tokens')
+      return
+    }
+
+    let cancelled = false
+    // simple cancellation on unmount / re-run
+    const cancel = () => {
+      cancelled = true
+    }
+
+    const lower = address.toLowerCase()
+    const results: string[] = []
+
+    // Use viem's multicall via publicClient for efficiency
+    const CHUNK = 200 // number of tokenIds per multicall batch
 
     try {
-      const url = `${assetsURL}svg/${id}.svg`
-      const response = await fetch(url, {
-        method: 'GET',
-        mode: 'cors',
-        cache: 'no-cache',
-        headers: {
-          'Content-Type': 'application/octet-stream'
-        }
-      });
+      for (let start = ID_MIN; start <= ID_MAX; start += CHUNK) {
+        const size = Math.min(CHUNK, ID_MAX - start + 1)
+        const contracts = Array.from({ length: size }, (_, i) => ({
+          address: contractAddress as `0x${string}`,
+          // @ts-ignore - ABI type loosened for brevity in this example
+          abi: contractAbi,
+          functionName: 'ownerOf',
+          args: [BigInt(start + i)],
+        }))
 
-      if (response.ok) {
-        const blob = await response.blob();
-        const objectUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = objectUrl;
-        a.download = `${id}.svg`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(objectUrl);
-        document.body.removeChild(a);
+        const res = await publicClient.multicall({ contracts, allowFailure: true })
+
+        res.forEach((r: any, idx: number) => {
+          if (r.status === 'success') {
+            const o = String(r.result).toLowerCase()
+            if (o === lower) results.push(String(start + idx))
+          }
+        })
+
+        if (cancelled) return
+        setProgress(`Scanned ${Math.min(start + size - ID_MIN, TOTAL_SUPPLY)} / ${TOTAL_SUPPLY}`)
       }
-    } catch (error) {
 
+      if (cancelled) return
+      setOwnedIds(results)
+      setCursor(0)
+      setStatus(results.length ? '' : 'No tokens owned by this wallet')
+      setProgress('')
+    } catch (e: any) {
+      if (cancelled) return
+      setStatus(`Scan failed: ${e.message ?? e}`)
+      setProgress('')
     }
+
+    return cancel
   }
 
-  const handleDownloadPng = async () => {
-    if (id == "")
-      return;
+  // Trigger scan on connect/address change
+  useEffect(() => {
+    let cancelled = false;
 
-    try {
-      const url = `${assetsURL}png/${id}.png`
-      const response = await fetch(url, {
-        method: 'GET',
-        mode: 'cors',
-        cache: 'no-cache',
-        headers: {
-          'Content-Type': 'application/octet-stream'
-        }
-      });
-
-      if (response.ok) {
-        const blob = await response.blob();
-        const objectUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = objectUrl;
-        a.download = `${id}.png`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(objectUrl);
-        document.body.removeChild(a);
+    (async () => {
+      if (!isConnected || !address) {
+        setOwnedIds([])
+        setCursor(0)
+        setStatus('Connect a wallet to load your tokens')
+        return
       }
-    } catch (error) {
-
+      await loadOwnedTokensByScanning()
+    })()
+    return () => {
+      cancelled = true
     }
-  }
+  }, [isConnected, address])
+
+  // Keep image url + owner synced with current id
+  useEffect(() => {
+    if (!id) {
+      setImageUrl('')
+      setOwner(null)
+      return
+    }
+    setImageUrl(`${assetsURL}svg/${id}.svg`)
+
+    let cancelled = false
+      ; (async () => {
+        try {
+          const res: string = await contract.ownerOf(id)
+          if (cancelled) return
+          setOwner(res)
+        } catch (e) {
+          if (cancelled) return
+          setOwner(null)
+        }
+      })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [id, contract])
 
   const handlePrev = () => {
-    const numId = parseInt(id, 10);
-    if (!isNaN(numId) && numId > 0) {
-      setId((numId - 1).toString());
-    }
-  };
+    if (ownedIds.length === 0) return
+    setCursor((c) => (c - 1 + ownedIds.length) % ownedIds.length)
+  }
 
   const handleNext = () => {
-    const numId = parseInt(id, 10);
-    if (!isNaN(numId) && numId < 5079) {
-      setId((numId + 1).toString());
-    }
-  };
+    if (ownedIds.length === 0) return
+    setCursor((c) => (c + 1) % ownedIds.length)
+  }
 
-  const handleIDInput = (e: any) => {
-    const value = e.target.value;
-    if (value === '') {
-      setId('');
-      return;
-    }
-
-    const num = parseInt(value, 10);
-    if (!isNaN(num)) {
-      if (num < 0) {
-        setId("0"); // clamp to 0
-      } else if (num > 5079) {
-        setId("5079"); // clamp to max
-      } else {
-        setId(num + "");
-      }
+  const download = async (ext: 'svg' | 'png') => {
+    if (!id) return
+    try {
+      const url = `${assetsURL}${ext}/${id}.${ext}`
+      const response = await fetch(url, {
+        method: 'GET',
+        mode: 'cors',
+        cache: 'no-cache',
+        headers: { 'Content-Type': 'application/octet-stream' },
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const blob = await response.blob()
+      const objectUrl = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = `${id}.${ext}`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(objectUrl)
+      document.body.removeChild(a)
+    } catch (error) {
+      alert(`Failed to download ${ext.toUpperCase()}: ${(error as Error).message}`)
     }
   }
 
-  useEffect(() => {
-    setImageUrl(`${assetsURL}svg/${id}.svg`)
-  }, [id])
-
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 text-gray-900">
+    <div className="flex flex-col min-h-screen bg-gradient-to-br text-gray-900">
       {/* HEADER */}
-      <header className="w-full border-b border-gray-200 bg-white/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <header className="w-full border-gray-200 bg-white/80 backdrop-blur-md">
+        <div className="px-10 pt-10 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img
-              src={viteLogo}
-              alt="Super Code World"
-              className="h-10 w-auto"
-            />
-            <span className="font-bold text-lg tracking-wide">Super Cool World</span>
+            <img src={viteLogo} alt="Super Cool World" className="h-20 w-auto" />
           </div>
-
-          {
-            isConnected ?
-              <nav className="hidden md:flex gap-6 text-gray-600 font-medium">
-                {/* <a href="#" className="hover:text-gray-900 transition-colors">Home</a> */}
-                <ConnectButton />
-              </nav> :
-              <></>
-          }
+          <nav className="hidden md:flex gap-6 text-gray-600 font-medium">
+            {
+              isConnected ?
+                <div className="max-w-2xl">
+                  <ConnectButton.Custom>
+                    {({ account, chain, openAccountModal, openConnectModal, mounted }) => {
+                      return (
+                        <span
+                          onClick={account ? openAccountModal : openConnectModal}
+                          className="flex items-center gap-2 text-gray-900 px-3 py-2 rounded hover:text-black transition cursor-pointer font-medium"
+                        >
+                          Disconnect Wallet <FaArrowRight />
+                        </span>
+                      );
+                    }}
+                  </ConnectButton.Custom>
+                </div> : <></>
+            }
+          </nav>
         </div>
       </header>
 
       {/* MAIN */}
       <main className="flex flex-1 flex-col items-center justify-center px-6 text-center space-y-6">
-        {
-          isConnected ?
-            <>
-              <div className="flex items-center space-x-4 mb-6">
-                {/* Left Arrow */}
-                <button
-                  className="text-3xl text-gray-700 hover:text-gray-900"
-                  onClick={handlePrev}
-                >
-                  &larr;
-                </button>
-
-                {/* Main Card */}
-                <div className="relative w-74 h-74 bg-gray-400 rounded-lg overflow-hidden">
-                  {
-                    id == "" ?
-                      <div className="flex items-center justify-center w-full h-full">
-                        <span className="text-gray-800 text-lg font-medium">No Super Cool Assets Found</span>
-                      </div>
-                      :
-                      <img
-                        src={imageUrl}
-                        alt="No Super Cool Assets Found"
-                        className="absolute inset-0 object-cover w-full h-full"
-                      />
-                  }
-                </div>
-
-                {/* Right Arrow */}
-                <button
-                  className="text-3xl text-gray-700 hover:text-gray-900"
-                  onClick={handleNext}
-                >
-                  &rarr;
-                </button>
-              </div>
-
-              {/* Search Bar */}
-              <div className="mt-4">
-                <input
-                  className="w-74 flex-grow px-4 py-2 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 ease-in-out"
-                  type="number"
-                  min={0}
-                  max={5079}
-                  value={id}
-                  onChange={(e) => handleIDInput(e)}
-                  placeholder="Search by token ID…"
-                />
-              </div>
-
-              {/* Download Buttons */}
-              <div className="flex space-x-4 mt-4">
-                <button
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-opacity-75 transition duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  onClick={handleDownloadSvg}
-                >
-                  Download SVG
-                </button>
-                <button
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-opacity-75 transition duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  onClick={handleDownloadPng}
-                >
-                  Download PNG
-                </button>
-              </div>
-            </> :
-            <div className="max-w-2xl">
-              <ConnectButton />
+        {!isConnected ? (
+          <div className="max-w-2xl">
+            <ConnectButton.Custom>
+              {({ account, chain, openAccountModal, openConnectModal, mounted }) => {
+                return (
+                  <span
+                    onClick={account ? openAccountModal : openConnectModal}
+                    className="flex items-center gap-2 text-gray-900 px-3 py-2 text-3xl rounded hover:text-black transition cursor-pointer"
+                  >
+                    Connect Wallet <FaArrowRight className="text-3xl pt-1" />
+                  </span>
+                );
+              }}
+            </ConnectButton.Custom>
+          </div>
+        ) : (
+          <>
+            {/* Ownership status / instructions */}
+            <div className="text-sm text-gray-900 min-h-[1.5rem]">
+              {status && <span>{status}</span>}
+              {!status && ownedIds.length > 0 && (
+                <span>
+                  Showing {cursor + 1} of {ownedIds.length} owned tokens
+                </span>
+              )}
+              {progress && (
+                <div className="text-xs text-gray-500 mt-1">{progress}</div>
+              )}
             </div>
-        }
+
+            <div className="flex items-center space-x-4 mb-2">
+              <button className="text-gray-900 hover:text-black" onClick={handlePrev} disabled={ownedIds.length === 0}>
+                <FaArrowLeft className="hover:text-black transition-colors text-3xl" />
+              </button>
+
+              <div className="relative w-74 h-74 bg-gray-200 rounded-lg overflow-hidden flex items-center justify-center">
+                {!id ? (
+                  <span className="text-gray-900 text-lg font-medium">No tokens found</span>
+                ) : (
+                  <img src={imageUrl} alt={`Token ${id}`} className="absolute inset-0 object-cover w-full h-full" />
+                )}
+              </div>
+
+              <button className="text-gray-900 hover:text-black" onClick={handleNext} disabled={ownedIds.length === 0}>
+                <FaArrowRight className="hover:text-black transition-colors text-3xl" />
+              </button>
+            </div>
+
+            {/* Owner row */}
+            {id && (
+              <div className="text-sm text-gray-900">
+                Owner: <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">{shortAddr(owner)}</span> {owner && address && owner.toLowerCase() === address.toLowerCase() && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Owned by you</span>
+                )}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center gap-3 mt-5">
+              <button
+                className="bg-black text-white px-3 py-2 rounded hover:bg-gray-800 active:bg-gray-900 transition"
+                onClick={loadOwnedTokensByScanning}
+              >
+                Rescan My Tokens
+              </button>
+
+              <button
+                className="bg-black text-white px-3 py-2 rounded hover:bg-gray-800 active:bg-gray-900 transition"
+                onClick={() => download('svg')}
+                disabled={!id}
+              >
+                Download SVG
+              </button>
+              <button
+                className="bg-black text-white px-3 py-2 rounded hover:bg-gray-800 active:bg-gray-900 transition"
+                onClick={() => download('png')}
+                disabled={!id}
+              >
+                Download PNG
+              </button>
+            </div>
+          </>
+        )}
       </main>
 
       {/* FOOTER */}
-      <footer className="border-t border-gray-200 bg-white/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-gray-500 text-sm">
-            © {new Date().getFullYear()} Super Cool World. All rights reserved.
-          </p>
-
-          <div className="flex gap-4 text-2xl text-gray-700">
+      <footer className="bg-white/80 backdrop-blur-md">
+        <div className="px-10 py-6 flex flex-col md:flex-row items-center justify-end gap-4">
+          <div className="flex gap-4 text-2xl text-gray-900">
             <a href="https://opensea.io" target="_blank" rel="noreferrer">
-              <SiOpensea className="hover:text-blue-500 transition-colors" />
+              <SiOpensea className="hover:text-blue-500 transition-colors text-5xl" />
             </a>
             <a href="https://instagram.com" target="_blank" rel="noreferrer">
-              <FaInstagram className="hover:text-pink-500 transition-colors" />
+              <FaInstagram className="hover:text-pink-500 transition-colors text-5xl" />
             </a>
             <a href="https://twitter.com" target="_blank" rel="noreferrer">
-              <FaXTwitter className="hover:text-black transition-colors" />
+              <FaXTwitter className="hover:text-black transition-colors text-5xl" />
             </a>
           </div>
         </div>
@@ -249,5 +314,3 @@ function App() {
     </div>
   )
 }
-
-export default App
