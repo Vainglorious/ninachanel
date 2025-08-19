@@ -24,6 +24,7 @@ export default function App() {
   const { disconnect } = useDisconnect();
 
   // Only show tokens the user owns
+  const [isFound, setIsFound] = useState<boolean>(true)
   const [ownedIds, setOwnedIds] = useState<string[]>([])
   const [cursor, setCursor] = useState(0) // index within ownedIds
 
@@ -88,6 +89,7 @@ export default function App() {
       }
       if (cancelled) return
       setOwnedIds(results)
+      setIsFound(results.length !== 0)
       setCursor(0)
       setStatus(results.length ? '' : 'No tokens owned by this wallet')
       setProgress('')
@@ -103,7 +105,7 @@ export default function App() {
   // Trigger scan on connect/address change
   useEffect(() => {
     let cancelled = false;
-
+    setIsFound(true);
     (async () => {
       if (!isConnected || !address) {
         setOwnedIds([])
@@ -258,83 +260,95 @@ export default function App() {
           </div>
         ) : (
           <>
-            {/* Ownership status / instructions */}
-            <div className="text-sm text-gray-900 min-h-[1.5rem]">
-              {status && <span>{status}</span>}
-              {!status && ownedIds.length > 0 && (
-                <span>
-                  Showing {cursor + 1} of {ownedIds.length} owned tokens
-                </span>
-              )}
-              {progress && (
-                <div className="text-xs text-gray-500 mt-1">{progress}</div>
-              )}
-            </div>
+            {
+              isFound ?
+                <>
+                  {/* Ownership status / instructions */}
+                  <div className="text-sm text-gray-900 min-h-[1.5rem]">
+                    {status && <span>{status}</span>}
+                    {!status && ownedIds.length > 0 && (
+                      <span>
+                        Showing {cursor + 1} of {ownedIds.length} owned tokens
+                      </span>
+                    )}
+                    {progress && (
+                      <div className="text-xs text-gray-500 mt-1">{progress}</div>
+                    )}
+                  </div>
 
-            <div className="flex items-center space-x-4 mb-2">
-              <button className="text-gray-900 hover:text-black" onClick={handlePrev} disabled={ownedIds.length === 0}>
-                <FaArrowLeft className="hover:text-black transition-colors text-3xl" />
-              </button>
+                  <div className="flex items-center space-x-4 mb-2">
+                    <button className="text-gray-900 hover:text-black" onClick={handlePrev} disabled={ownedIds.length === 0}>
+                      <FaArrowLeft className="hover:text-black transition-colors text-3xl" />
+                    </button>
 
-              <div className="relative w-74 h-74 bg-gray-200 rounded-lg overflow-hidden flex items-center justify-center">
-                {!id ? (
-                  <span className="text-gray-900 text-lg font-medium">No tokens found</span>
-                ) : (
-                  <img src={imageUrl} alt={`Token ${id}`} className="absolute inset-0 object-cover w-full h-full" />
-                )}
-              </div>
+                    <div className="relative w-74 h-74 bg-gray-200 rounded-lg overflow-hidden flex items-center justify-center">
+                      {!id ? (
+                        <span className="text-gray-900 text-lg font-medium"></span>
+                      ) : (
+                        <img src={imageUrl} alt={`Token ${id}`} className="absolute inset-0 object-cover w-full h-full" />
+                      )}
+                    </div>
 
-              <button className="text-gray-900 hover:text-black" onClick={handleNext} disabled={ownedIds.length === 0}>
-                <FaArrowRight className="hover:text-black transition-colors text-3xl" />
-              </button>
-            </div>
+                    <button className="text-gray-900 hover:text-black" onClick={handleNext} disabled={ownedIds.length === 0}>
+                      <FaArrowRight className="hover:text-black transition-colors text-3xl" />
+                    </button>
+                  </div>
 
-            {/* Owner row */}
-            {id && (
-              <div className="text-sm text-gray-900">
-                Owner: <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">{shortAddr(owner)}</span> {owner && address && owner.toLowerCase() === address.toLowerCase() && (
-                  <span className="ml-2 inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Owned by you</span>
-                )}
-              </div>
-            )}
+                  {/* Owner row */}
+                  {id && (
+                    <div className="text-sm text-gray-900">
+                      Owner: <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">{shortAddr(owner)}</span> {owner && address && owner.toLowerCase() === address.toLowerCase() && (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Owned by you</span>
+                      )}
+                    </div>
+                  )}
 
-            {/* Search Bar */}
-            <div className="mt-4">
-              <input
-                className="w-74 flex-grow px-4 py-2 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 ease-in-out"
-                type="number"
-                min={0}
-                max={5079}
-                value={searchId}
-                placeholder="Search by token ID…"
-                onChange={(e) => handleIDInput(e)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault(); // optional, prevent form submit
-                    handleSearchID();
-                  }
-                }}
-              />
-            </div>
+                  {/* Search Bar */}
+                  <div className="mt-4">
+                    <input
+                      className="w-74 flex-grow px-4 py-2 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 ease-in-out"
+                      type="number"
+                      min={0}
+                      max={5079}
+                      value={searchId}
+                      placeholder="Search by token ID…"
+                      onChange={(e) => handleIDInput(e)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault(); // optional, prevent form submit
+                          handleSearchID();
+                        }
+                      }}
+                    />
+                  </div>
 
 
-            {/* Actions */}
-            <div className="flex items-center gap-3 mt-5">
-              <button
-                className="bg-black text-white px-3 py-2 rounded hover:bg-gray-800 active:bg-gray-900 transition"
-                onClick={() => download('svg')}
-                disabled={!id}
-              >
-                Download SVG
-              </button>
-              <button
-                className="bg-black text-white px-3 py-2 rounded hover:bg-gray-800 active:bg-gray-900 transition"
-                onClick={() => download('png')}
-                disabled={!id}
-              >
-                Download PNG
-              </button>
-            </div>
+                  {/* Actions */}
+                  <div className="flex items-center gap-3 mt-5">
+                    <button
+                      className="bg-black text-white px-3 py-2 rounded hover:bg-gray-800 active:bg-gray-900 transition"
+                      onClick={() => download('svg')}
+                      disabled={!id}
+                    >
+                      Download SVG
+                    </button>
+                    <button
+                      className="bg-black text-white px-3 py-2 rounded hover:bg-gray-800 active:bg-gray-900 transition"
+                      onClick={() => download('png')}
+                      disabled={!id}
+                    >
+                      Download PNG
+                    </button>
+                  </div>
+                </> :
+                <div className="max-w-2xl">
+                  <span
+                    className="flex items-center gap-2 text-gray-900 px-3 py-2 text-3xl rounded hover:text-black transition cursor-pointer"
+                  >
+                    No Super Cool Assets Found
+                  </span>
+                </div>
+            }
           </>
         )}
       </main>
